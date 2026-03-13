@@ -37,6 +37,48 @@ STITCH_WEIGHTS = {
     "F": 1, "FV": 2, "FA": 1
 }
 
+def parse_stitch_string(stitch_str):
+    """解析表格字串 (如 '(X, V) * 6' 或 '6X')，轉為繪圖用的陣列"""
+    flat_symbols = []
+    stitch_str = str(stitch_str).strip()
+    if not stitch_str or stitch_str.lower() in ["nan", "none"]: 
+        return []
+
+    repeat = 1
+    pattern_str = stitch_str
+    
+    # 匹配 ( ... ) * N 或 ( ... ) x N
+    match_repeat = re.search(r'\((.*?)\)\s*[\*xX]\s*(\d+)', stitch_str)
+    if match_repeat:
+        pattern_str = match_repeat.group(1)
+        repeat = int(match_repeat.group(2))
+    else:
+        # 匹配 ... * N
+        match_repeat_no_paren = re.search(r'(.*?)\s*[\*xX]\s*(\d+)$', stitch_str)
+        if match_repeat_no_paren:
+            pattern_str = match_repeat_no_paren.group(1)
+            repeat = int(match_repeat_no_paren.group(2))
+
+    items = [x.strip() for x in pattern_str.split(',')]
+    seq = []
+    for item in items:
+        if not item: continue
+        # 匹配 '2X', '10CH' 這類開頭有數字的
+        match = re.match(r'^(\d+)?([A-Za-z]+)$', item)
+        if match:
+            cnt = int(match.group(1)) if match.group(1) else 1
+            sym = match.group(2).upper()
+            seq.extend([sym] * cnt)
+        else:
+            # 容錯處理：硬抓英文字母與數字
+            sym_match = re.search(r'[A-Za-z]+', item)
+            sym = sym_match.group().upper() if sym_match else "X"
+            num_match = re.search(r'\d+', item)
+            cnt = int(num_match.group()) if num_match else 1
+            seq.extend([sym] * cnt)
+
+    return seq * repeat
+
 def draw_diagram(rounds):
     """根據紀錄資料產生 Matplotlib 織圖"""
     if not rounds: return None
@@ -44,7 +86,7 @@ def draw_diagram(rounds):
     ax.set_aspect('equal')
     ax.axis('off')
 
-    start_type = rounds[0].get("type", "magic_ring")
+    start_type = rounds[0].get("type", "magic_ring") if len(rounds) > 0 else "magic_ring"
 
     if start_type == "magic_ring":
         # === 環形起針繪圖邏輯 ===
@@ -58,7 +100,6 @@ def draw_diagram(rounds):
                 circle = plt.Circle((0, 0), r, color='lightgray', fill=False, linestyle=':')
                 ax.add_patch(circle)
                 
-                # 改用 flat_symbols 支援組合針法，並相容舊資料
                 flat_symbols = rnd.get("flat_symbols", [rnd.get("symbol", "X")] * rnd.get("count", 6))
                 count = len(flat_symbols)
                 if count == 0: continue
@@ -78,7 +119,7 @@ def draw_diagram(rounds):
         # === 辮子起針 (平織) 繪圖邏輯 ===
         max_x = 0
         for i, rnd in enumerate(rounds):
-            y = i * 1.5 # 每一排的垂直間距
+            y = i * 1.5 
             
             if rnd["type"] == "chain_start":
                 flat_symbols = ["CH"] * rnd.get("count", 1)
@@ -88,7 +129,6 @@ def draw_diagram(rounds):
             count = len(flat_symbols)
             if count == 0: continue
 
-            # 置中對齊排版
             if count == 1:
                 xs = [0]
             else:
@@ -96,11 +136,9 @@ def draw_diagram(rounds):
 
             max_x = max(max_x, count/2)
 
-            # 畫淡淡的底線輔助對齊 (只在數量大於 1 時畫)
             if count > 1:
                 ax.plot([xs[0], xs[-1]], [y, y], color='lightgray', linestyle=':', zorder=1)
 
-            # 放上針法符號
             for x, symbol in zip(xs, flat_symbols):
                 ax.text(x, y, symbol, ha='center', va='center', fontsize=14, fontweight='bold', zorder=2)
 
@@ -114,7 +152,6 @@ def render_diagram_tool(state_key, key_prefix):
     if state_key not in st.session_state:
         st.session_state[state_key] = []
     
-    # 新增一個專屬的狀態來儲存「目前正在建構的這一圈」
     builder_key = f"{state_key}_builder"
     if builder_key not in st.session_state:
         st.session_state[builder_key] = []
@@ -130,8 +167,7 @@ def render_diagram_tool(state_key, key_prefix):
             if start_type == "辮子起針":
                 chain_count = st.number_input("起針數 (鎖針)", min_value=1, value=10, step=1, key=f"{key_prefix}chain_cnt")
         with col_ctrl3:
-            st.write("")
-            st.write("")
+            st.write(""); st.write("")
             if st.button("🪄 開始起針", key=f"{key_prefix}btn_start"):
                 if start_type == "環形起針":
                     rounds.append({"type": "magic_ring"})
@@ -139,9 +175,8 @@ def render_diagram_tool(state_key, key_prefix):
                     rounds.append({"type": "chain_start", "count": chain_count, "symbol": "CH"})
                 st.rerun()
     else:
-        st.markdown("##### 🛠️ 組合這一圈的針法")
+        st.markdown("##### 🛠️ 手動組合這一圈的針法")
         
-        # 顯示目前組合狀態
         if st.session_state[builder_key]:
             seq_strs = [f"{item['stitch']} x{item['count']}" for item in st.session_state[builder_key]]
             st.info(f"**目前組合：** ( {' + '.join(seq_strs)} )")
@@ -154,8 +189,7 @@ def render_diagram_tool(state_key, key_prefix):
         with col_b2:
             stitch_count = st.number_input("針數", min_value=1, value=1, step=1, key=f"{key_prefix}cnt")
         with col_b3:
-            st.write("")
-            st.write("")
+            st.write(""); st.write("")
             if st.button("➕ 加入組合", key=f"{key_prefix}btn_add_seq"):
                 symbol_match = re.search(r'[A-Za-z]+', stitch_type)
                 symbol = symbol_match.group() if symbol_match else "X"
@@ -171,17 +205,14 @@ def render_diagram_tool(state_key, key_prefix):
             with col_r1:
                 repeat_times = st.number_input("上述組合重複幾次?", min_value=1, value=1, step=1, key=f"{key_prefix}rep")
             with col_r2:
-                st.write("")
-                st.write("")
+                st.write(""); st.write("")
                 if st.button("✅ 完成並新增這一圈/排", type="primary", key=f"{key_prefix}btn_add_round"):
                     flat_symbols = []
                     total_stitches = 0
                     
-                    # 依據重複次數展開符號，並計算總針數
                     for _ in range(repeat_times):
                         for item in st.session_state[builder_key]:
                             flat_symbols.extend([item["symbol"]] * item["count"])
-                            # 查詢權重 (如 V=2針, X=1針)，加總後為這圈總結的針數
                             weight = STITCH_WEIGHTS.get(item["symbol"], 1)
                             total_stitches += weight * item["count"]
                     
@@ -192,11 +223,10 @@ def render_diagram_tool(state_key, key_prefix):
                         "total_stitches": total_stitches,
                         "flat_symbols": flat_symbols
                     })
-                    st.session_state[builder_key] = [] # 成功後清空暫存區
+                    st.session_state[builder_key] = []
                     st.rerun()
             with col_r3:
-                st.write("")
-                st.write("")
+                st.write(""); st.write("")
                 if st.button("🗑️ 清空組合", key=f"{key_prefix}btn_clear_seq"):
                     st.session_state[builder_key] = []
                     st.rerun()
@@ -211,8 +241,6 @@ def render_diagram_tool(state_key, key_prefix):
 
     if len(rounds) > 0:
         st.success(f"目前已完成 {len(rounds) - 1} 圈/排")
-        
-        # 顯示文字版的針法摘要與共幾針
         for i, rnd in enumerate(rounds):
             if rnd["type"] == "magic_ring":
                 st.caption("起針：環形起針")
@@ -222,7 +250,7 @@ def render_diagram_tool(state_key, key_prefix):
                 seq_str = " + ".join([f"{item['symbol']}*{item['count']}" for item in rnd.get("sequence", [])])
                 rep = rnd.get("repeat", 1)
                 tot = rnd.get("total_stitches", len(rnd.get("flat_symbols", [])))
-                if not seq_str: # 相容舊資料
+                if not seq_str:
                     seq_str = f"{rnd.get('symbol', 'X')}*{rnd.get('count', 6)}"
                     rep = 1
                 st.caption(f"第 {i} 圈/排：({seq_str}) * {rep} 次 ＝ 共 **{tot}** 針")
@@ -232,11 +260,9 @@ def render_diagram_tool(state_key, key_prefix):
             st.pyplot(fig)
 
 def get_connection():
-    """取得資料庫連線"""
     return sqlite3.connect(DB_FILE)
 
 def init_db():
-    """初始化資料庫，建立所需的資料表"""
     with get_connection() as conn:
         c = conn.cursor()
         c.execute('''
@@ -261,15 +287,10 @@ def init_db():
                 diagram_data TEXT
             )
         ''')
-        # 兼容舊版資料庫自動補上欄位
-        try:
-            c.execute("ALTER TABLE patterns ADD COLUMN sections_data TEXT")
-        except sqlite3.OperationalError:
-            pass
-        try:
-            c.execute("ALTER TABLE patterns ADD COLUMN diagram_data TEXT")
-        except sqlite3.OperationalError:
-            pass
+        try: c.execute("ALTER TABLE patterns ADD COLUMN sections_data TEXT")
+        except sqlite3.OperationalError: pass
+        try: c.execute("ALTER TABLE patterns ADD COLUMN diagram_data TEXT")
+        except sqlite3.OperationalError: pass
             
         c.execute('''
             CREATE TABLE IF NOT EXISTS projects (
@@ -281,9 +302,7 @@ def init_db():
         ''')
         conn.commit()
 
-# 執行初始化
 init_db()
-
 
 # --- 側邊欄：導覽列 ---
 st.sidebar.title("🧶 AI-Crochet")
@@ -292,11 +311,9 @@ page = st.sidebar.radio(
     ["🏠 首頁 - 作品展示", "🧵 材料庫存", "📖 查看織圖", "➕ 新增織圖"]
 )
 st.sidebar.markdown("---")
-st.sidebar.info("歡迎來到你的專屬勾針創作紀錄系統！資料已安全儲存於本地資料庫。")
-
+st.sidebar.info("歡迎來到你的專屬勾針創作紀錄系統！")
 
 # --- 頁面內容 ---
-
 if page == "🏠 首頁 - 作品展示":
     st.title("🏠 我的勾針作品展示區")
     st.write("這裡是你的作品藝廊！")
@@ -345,7 +362,6 @@ if page == "🏠 首頁 - 作品展示":
                         st.write(row['description'])
                         
                     st.divider()
-                    
                     col_edit, col_del = st.columns([1, 1])
                     with col_del:
                         if st.button("🗑️ 刪除", key=f"del_proj_{row['id']}", use_container_width=True):
@@ -354,10 +370,8 @@ if page == "🏠 首頁 - 作品展示":
                                 c.execute("DELETE FROM projects WHERE id=?", (row['id'],))
                                 conn.commit()
                             if os.path.exists(row['image_path']):
-                                try:
-                                    os.remove(row['image_path'])
-                                except Exception:
-                                    pass
+                                try: os.remove(row['image_path'])
+                                except Exception: pass
                             st.rerun()
                             
                     with col_edit:
@@ -475,17 +489,12 @@ elif page == "📖 查看織圖":
         else:
             row = df_edit.iloc[0]
             
-            # 載入儲存的圖解資料到 Session State
             if "edit_gen_rounds" not in st.session_state:
                 if row.get('diagram_data') and row['diagram_data']:
-                    try:
-                        st.session_state.edit_gen_rounds = json.loads(row['diagram_data'])
-                    except:
-                        st.session_state.edit_gen_rounds = []
-                else:
-                    st.session_state.edit_gen_rounds = []
+                    try: st.session_state.edit_gen_rounds = json.loads(row['diagram_data'])
+                    except: st.session_state.edit_gen_rounds = []
+                else: st.session_state.edit_gen_rounds = []
 
-            # 基本資訊
             new_name = st.text_input("織圖名稱 *", value=row['name'])
             types = ["玩偶 (Amigurumi)", "服飾", "包包", "家飾", "其他"]
             type_idx = types.index(row['type']) if row['type'] in types else 0
@@ -501,14 +510,7 @@ elif page == "📖 查看織圖":
             new_notes = st.text_area("整體筆記 / 心得", value=row['notes'] if row['notes'] else "")
             
             st.divider()
-            
-            # 編輯畫布
-            with st.expander("🪄 編輯自動化圖解", expanded=True):
-                render_diagram_tool("edit_gen_rounds", "edit_")
-                
-            st.divider()
 
-            # 準備舊的區段表格資料
             if "edit_pattern_sections" not in st.session_state:
                 if row['sections_data']:
                     try:
@@ -521,6 +523,7 @@ elif page == "📖 查看織圖":
                 else:
                     st.session_state.edit_pattern_sections = [{"name": "區段 1", "data": pd.DataFrame([{"圈數": "1", "針法": "", "針數": "", "備註": ""}])}]
             
+            # --- 【位置調換】織法表格移至上方 ---
             st.subheader("📝 編輯織法表格")
             sections_to_remove = []
             needs_rerun = False
@@ -529,8 +532,7 @@ elif page == "📖 查看織圖":
                 with scol1:
                     sec['name'] = st.text_input("區段名稱", value=sec['name'], key=f"edit_sec_name_{i}")
                 with scol2:
-                    st.write("") 
-                    st.write("")
+                    st.write(""); st.write("")
                     if st.button("🗑️ 刪除區段", key=f"edit_del_sec_{i}"):
                         sections_to_remove.append(i)
                         
@@ -541,24 +543,33 @@ elif page == "📖 查看織圖":
                     use_container_width=True,
                     column_config={
                         "圈數": st.column_config.TextColumn("圈數"),
-                        "針法": st.column_config.SelectboxColumn("針法", options=STITCH_OPTIONS),
+                        "針法": st.column_config.TextColumn("針法"),
                         "針數": st.column_config.TextColumn("總針數"),
                         "備註": st.column_config.TextColumn("備註"),
                     }
                 )
                 
+                # --- 強化：不管新增或刪除，全面強制由上往下重算圈數 ---
                 section_updated = False
                 for idx in range(len(edited_df)):
-                    val = edited_df.iloc[idx]['圈數']
-                    if pd.isna(val) or str(val).strip() == "":
-                        prev_val = edited_df.iloc[idx-1]['圈數'] if idx > 0 else "0"
-                        match = re.search(r'\d+', str(prev_val))
+                    current_val = str(edited_df.iloc[idx]['圈數'])
+                    if idx == 0:
+                        if pd.isna(edited_df.iloc[idx]['圈數']) or current_val.strip() == "":
+                            edited_df.at[edited_df.index[idx], '圈數'] = "1"
+                            section_updated = True
+                    else:
+                        prev_val = str(edited_df.iloc[idx-1]['圈數'])
+                        match = re.search(r'\d+', prev_val)
                         if match:
-                            new_val = str(prev_val).replace(match.group(), str(int(match.group()) + 1), 1)
+                            expected_val = prev_val.replace(match.group(), str(int(match.group()) + 1), 1)
+                            if current_val != expected_val:
+                                edited_df.at[edited_df.index[idx], '圈數'] = expected_val
+                                section_updated = True
                         else:
-                            new_val = str(idx + 1)
-                        edited_df.at[edited_df.index[idx], '圈數'] = new_val
-                        section_updated = True
+                            expected_val = str(idx + 1)
+                            if current_val != expected_val:
+                                edited_df.at[edited_df.index[idx], '圈數'] = expected_val
+                                section_updated = True
                 
                 if section_updated:
                     sec['data'] = edited_df
@@ -566,6 +577,62 @@ elif page == "📖 查看織圖":
                 else:
                     sec['data'] = edited_df
                     
+                builder_key = f"edit_sec_builder_{i}"
+                if builder_key not in st.session_state: st.session_state[builder_key] = []
+                    
+                with st.expander("🛠️ 使用組合建構器新增一圈", expanded=False):
+                    if st.session_state[builder_key]:
+                        seq_strs = [f"{item['stitch']} x{item['count']}" for item in st.session_state[builder_key]]
+                        st.info(f"**目前組合：** ( {' + '.join(seq_strs)} )")
+                        
+                    col_b1, col_b2, col_b3 = st.columns([2, 2, 1])
+                    with col_b1: stitch_type = st.selectbox("新增一種針法", STITCH_OPTIONS, key=f"edit_b_stitch_{i}")
+                    with col_b2: stitch_count = st.number_input("針數", min_value=1, value=1, step=1, key=f"edit_b_cnt_{i}")
+                    with col_b3:
+                        st.write(""); st.write("")
+                        if st.button("➕ 加入組合", key=f"edit_b_add_{i}"):
+                            symbol_match = re.search(r'[A-Za-z]+', stitch_type)
+                            symbol = symbol_match.group() if symbol_match else "X"
+                            st.session_state[builder_key].append({
+                                "stitch": stitch_type, "symbol": symbol, "count": stitch_count
+                            })
+                            st.rerun()
+                            
+                    if st.session_state[builder_key]:
+                        col_r1, col_r2, col_r3 = st.columns([2, 2, 1])
+                        with col_r1:
+                            repeat_times = st.number_input("上述組合重複幾次?", min_value=1, value=1, step=1, key=f"edit_b_rep_{i}")
+                            notes_input = st.text_input("備註 (選填)", key=f"edit_b_notes_{i}")
+                        with col_r2:
+                            st.write(""); st.write("")
+                            if st.button("✅ 產生並加入表格", type="primary", key=f"edit_b_done_{i}"):
+                                total_stitches = 0
+                                seq_symbols = []
+                                for item in st.session_state[builder_key]:
+                                    weight = STITCH_WEIGHTS.get(item["symbol"], 1)
+                                    total_stitches += weight * item["count"]
+                                    seq_symbols.append(f"{item['symbol']}" if item['count']==1 else f"{item['count']}{item['symbol']}")
+                                
+                                total_stitches *= repeat_times
+                                seq_str = ", ".join(seq_symbols)
+                                final_stitch_str = f"({seq_str}) * {repeat_times}" if repeat_times > 1 else (seq_str if len(seq_symbols) > 1 else seq_symbols[0])
+
+                                next_round = "1"
+                                if len(edited_df) > 0:
+                                    prev_val = edited_df.iloc[-1]['圈數']
+                                    match = re.search(r'\d+', str(prev_val))
+                                    if match: next_round = str(prev_val).replace(match.group(), str(int(match.group()) + 1), 1)
+                                    else: next_round = str(len(edited_df) + 1)
+
+                                new_row = {"圈數": next_round, "針法": final_stitch_str, "針數": str(total_stitches), "備註": notes_input}
+                                sec['data'] = pd.concat([edited_df, pd.DataFrame([new_row])], ignore_index=True)
+                                st.session_state[builder_key] = []
+                                st.rerun()
+                        with col_r3:
+                            st.write(""); st.write("")
+                            if st.button("🗑️ 清空組合", key=f"edit_b_clear_{i}"):
+                                st.session_state[builder_key] = []
+                                st.rerun()
                 st.write("---")
                 
             if sections_to_remove:
@@ -582,6 +649,35 @@ elif page == "📖 查看織圖":
                     "data": pd.DataFrame([{"圈數": "1", "針法": "", "針數": "", "備註": ""}])
                 })
                 st.rerun()
+                
+            st.divider()
+
+            # --- 【位置調換】自動化圖解移至下方 ---
+            with st.expander("🪄 編輯自動化圖解 (由表格產生)", expanded=True):
+                if st.button("🔄 一鍵將上方表格資料匯入織圖產生器", type="primary", use_container_width=True, key="edit_sync_btn"):
+                    new_rounds = []
+                    is_first_row = True
+                    for sec in st.session_state.edit_pattern_sections:
+                        for _, r in sec['data'].iterrows():
+                            stitch_str = str(r['針法'])
+                            flat_syms = parse_stitch_string(stitch_str)
+                            if not flat_syms: continue
+                            
+                            if is_first_row:
+                                is_first_row = False
+                                if "CH" in stitch_str.upper() or "鎖" in stitch_str:
+                                    new_rounds.append({"type": "chain_start", "count": len(flat_syms), "symbol": "CH"})
+                                    continue
+                                else:
+                                    new_rounds.append({"type": "magic_ring"})
+                                    
+                            new_rounds.append({"type": "round", "flat_symbols": flat_syms, "count": len(flat_syms)})
+                    st.session_state.edit_gen_rounds = new_rounds
+                    st.success("✅ 圖解資料轉換成功！")
+                    st.rerun()
+
+                st.write("---")
+                render_diagram_tool("edit_gen_rounds", "edit_diag_")
                 
             st.divider()
             
@@ -649,7 +745,6 @@ elif page == "📖 查看織圖":
                     st.write(f"**建議勾針：** {row['hook_size']}")
                     st.write(f"**整體筆記：** {row['notes']}")
                     
-                    # 顯示儲存的圖解預覽
                     if row.get('diagram_data') and row['diagram_data']:
                         try:
                             diag_data = json.loads(row['diagram_data'])
@@ -696,28 +791,18 @@ elif page == "📖 查看織圖":
                                 c.execute("DELETE FROM patterns WHERE id=?", (row['id'],))
                                 conn.commit()
                             if row['file_path'] and os.path.exists(row['file_path']):
-                                try:
-                                    os.remove(row['file_path'])
-                                except Exception:
-                                    pass
+                                try: os.remove(row['file_path'])
+                                except Exception: pass
                             st.rerun()
-
 
 elif page == "➕ 新增織圖":
     st.title("➕ 新增織圖")
     st.write("將新的靈感、織法區段和表格記錄下來吧！")
     
-    # --- 自動化織圖產生器 (支援環形與平織) ---
-    with st.expander("🪄 自動化織圖產生器 (視覺化輔助)", expanded=False):
-        st.write("在這裡可以快速產生圖解輔助你的設計，儲存後可以直接在「查看織圖」預覽。")
-        render_diagram_tool("gen_rounds", "add_")
-
-    st.divider()
-
     if "pattern_sections" not in st.session_state:
         st.session_state.pattern_sections = [{
             "name": "區段 1 (例如：頭部)",
-            "data": pd.DataFrame([{"圈數": "1", "針法": "引拔SL", "針數": "10", "備註": "起針"}])
+            "data": pd.DataFrame([{"圈數": "1", "針法": "6X", "針數": "6", "備註": "起針"}])
         }]
     
     pattern_name = st.text_input("織圖名稱 *", key="p_name")
@@ -734,8 +819,9 @@ elif page == "➕ 新增織圖":
     
     st.divider()
     
+    # --- 【位置調換】織法表格移至上方 ---
     st.subheader("📝 織法表格 (支援多區段)")
-    st.info("💡 提示：在表格最後一列的下方點擊即可新增一圈。點擊儲存格可以直接修改內容。")
+    st.info("💡 提示：若刪除中間的圈數，後續的編號將自動向前遞補喔！")
     
     sections_to_remove = []
     needs_rerun = False
@@ -744,8 +830,7 @@ elif page == "➕ 新增織圖":
         with scol1:
             sec['name'] = st.text_input("區段名稱", value=sec['name'], key=f"sec_name_{i}")
         with scol2:
-            st.write("") 
-            st.write("")
+            st.write(""); st.write("")
             if st.button("🗑️ 刪除區段", key=f"del_sec_{i}"):
                 sections_to_remove.append(i)
                 
@@ -756,31 +841,97 @@ elif page == "➕ 新增織圖":
             use_container_width=True,
             column_config={
                 "圈數": st.column_config.TextColumn("圈數"),
-                "針法": st.column_config.SelectboxColumn("針法", options=STITCH_OPTIONS),
+                "針法": st.column_config.TextColumn("針法"),
                 "針數": st.column_config.TextColumn("總針數 (例如: 6, 12)"),
                 "備註": st.column_config.TextColumn("備註"),
             }
         )
         
+        # --- 強化：不管新增或刪除，全面強制由上往下重算圈數 ---
         section_updated = False
         for idx in range(len(edited_df)):
-            val = edited_df.iloc[idx]['圈數']
-            if pd.isna(val) or str(val).strip() == "":
-                prev_val = edited_df.iloc[idx-1]['圈數'] if idx > 0 else "0"
-                match = re.search(r'\d+', str(prev_val))
+            current_val = str(edited_df.iloc[idx]['圈數'])
+            if idx == 0:
+                if pd.isna(edited_df.iloc[idx]['圈數']) or current_val.strip() == "":
+                    edited_df.at[edited_df.index[idx], '圈數'] = "1"
+                    section_updated = True
+            else:
+                prev_val = str(edited_df.iloc[idx-1]['圈數'])
+                match = re.search(r'\d+', prev_val)
                 if match:
-                    new_val = str(prev_val).replace(match.group(), str(int(match.group()) + 1), 1)
+                    expected_val = prev_val.replace(match.group(), str(int(match.group()) + 1), 1)
+                    if current_val != expected_val:
+                        edited_df.at[edited_df.index[idx], '圈數'] = expected_val
+                        section_updated = True
                 else:
-                    new_val = str(idx + 1)
-                edited_df.at[edited_df.index[idx], '圈數'] = new_val
-                section_updated = True
+                    expected_val = str(idx + 1)
+                    if current_val != expected_val:
+                        edited_df.at[edited_df.index[idx], '圈數'] = expected_val
+                        section_updated = True
         
         if section_updated:
             sec['data'] = edited_df
             needs_rerun = True
         else:
             sec['data'] = edited_df
+
+        builder_key = f"sec_builder_{i}"
+        if builder_key not in st.session_state: st.session_state[builder_key] = []
             
+        with st.expander("🛠️ 使用組合建構器新增一圈", expanded=True):
+            if st.session_state[builder_key]:
+                seq_strs = [f"{item['stitch']} x{item['count']}" for item in st.session_state[builder_key]]
+                st.info(f"**目前組合：** ( {' + '.join(seq_strs)} )")
+                
+            col_b1, col_b2, col_b3 = st.columns([2, 2, 1])
+            with col_b1: stitch_type = st.selectbox("新增一種針法", STITCH_OPTIONS, key=f"b_stitch_{i}")
+            with col_b2: stitch_count = st.number_input("針數", min_value=1, value=1, step=1, key=f"b_cnt_{i}")
+            with col_b3:
+                st.write(""); st.write("")
+                if st.button("➕ 加入組合", key=f"b_add_{i}"):
+                    symbol_match = re.search(r'[A-Za-z]+', stitch_type)
+                    symbol = symbol_match.group() if symbol_match else "X"
+                    st.session_state[builder_key].append({
+                        "stitch": stitch_type, "symbol": symbol, "count": stitch_count
+                    })
+                    st.rerun()
+                    
+            if st.session_state[builder_key]:
+                col_r1, col_r2, col_r3 = st.columns([2, 2, 1])
+                with col_r1:
+                    repeat_times = st.number_input("上述組合重複幾次?", min_value=1, value=1, step=1, key=f"b_rep_{i}")
+                    notes_input = st.text_input("備註 (選填)", key=f"b_notes_{i}")
+                with col_r2:
+                    st.write(""); st.write("")
+                    if st.button("✅ 產生並加入表格", type="primary", key=f"b_done_{i}"):
+                        total_stitches = 0
+                        seq_symbols = []
+                        for item in st.session_state[builder_key]:
+                            weight = STITCH_WEIGHTS.get(item["symbol"], 1)
+                            total_stitches += weight * item["count"]
+                            seq_symbols.append(f"{item['symbol']}" if item['count']==1 else f"{item['count']}{item['symbol']}")
+                        
+                        total_stitches *= repeat_times
+                        seq_str = ", ".join(seq_symbols)
+                        final_stitch_str = f"({seq_str}) * {repeat_times}" if repeat_times > 1 else (seq_str if len(seq_symbols) > 1 else seq_symbols[0])
+
+                        next_round = "1"
+                        if len(edited_df) > 0:
+                            prev_val = edited_df.iloc[-1]['圈數']
+                            match = re.search(r'\d+', str(prev_val))
+                            if match: next_round = str(prev_val).replace(match.group(), str(int(match.group()) + 1), 1)
+                            else: next_round = str(len(edited_df) + 1)
+
+                        new_row = {"圈數": next_round, "針法": final_stitch_str, "針數": str(total_stitches), "備註": notes_input}
+                        sec['data'] = pd.concat([edited_df, pd.DataFrame([new_row])], ignore_index=True)
+                        st.session_state[builder_key] = []
+                        st.rerun()
+                with col_r3:
+                    st.write(""); st.write("")
+                    if st.button("🗑️ 清空組合", key=f"b_clear_{i}"):
+                        st.session_state[builder_key] = []
+                        st.rerun()
+                        
         st.write("---")
         
     if sections_to_remove:
@@ -799,6 +950,40 @@ elif page == "➕ 新增織圖":
         st.rerun()
         
     st.divider()
+
+    # --- 【位置調換】自動化圖解移至下方 ---
+    with st.expander("🪄 自動化織圖產生器 (由表格產生)", expanded=True):
+        st.write("在上方表格完成編輯後，點擊下方按鈕即可一鍵繪製圖解！")
+        
+        # 【黑科技】一鍵匯入按鈕
+        if st.button("🔄 一鍵將上方表格資料匯入織圖產生器", type="primary", use_container_width=True, key="add_sync_btn"):
+            new_rounds = []
+            is_first_row = True
+            for sec in st.session_state.pattern_sections:
+                for _, r in sec['data'].iterrows():
+                    stitch_str = str(r['針法'])
+                    flat_syms = parse_stitch_string(stitch_str)
+                    if not flat_syms: continue
+                    
+                    if is_first_row:
+                        is_first_row = False
+                        # 簡單判斷：如果第一圈有出現 "CH" 或 "鎖" 字眼，就視為平織辮子起針
+                        if "CH" in stitch_str.upper() or "鎖" in stitch_str:
+                            new_rounds.append({"type": "chain_start", "count": len(flat_syms), "symbol": "CH"})
+                            continue # 起針本身就是一列，不需再當作一般圈數加入
+                        else:
+                            new_rounds.append({"type": "magic_ring"})
+                            
+                    new_rounds.append({"type": "round", "flat_symbols": flat_syms, "count": len(flat_syms)})
+                    
+            st.session_state.gen_rounds = new_rounds
+            st.success("✅ 圖解資料轉換成功！")
+            st.rerun()
+
+        st.write("---")
+        render_diagram_tool("gen_rounds", "add_diag_")
+
+    st.divider()
     
     if st.button("💾 儲存完整織圖", type="primary", use_container_width=True):
         if pattern_name:
@@ -815,8 +1000,6 @@ elif page == "➕ 新增織圖":
                     "data": sec['data'].to_dict(orient="records")
                 })
             sections_json = json.dumps(save_data, ensure_ascii=False)
-            
-            # 將畫布資料也存為 JSON
             diagram_json = json.dumps(st.session_state.get("gen_rounds", []), ensure_ascii=False)
             
             with get_connection() as conn:
@@ -829,13 +1012,10 @@ elif page == "➕ 新增織圖":
             
             st.success(f"✅ 成功新增織圖：{pattern_name}！請至「查看織圖」頁面確認。")
             
-            # 儲存後清空畫面狀態，準備輸入下一筆
             del st.session_state.pattern_sections
-            if "gen_rounds" in st.session_state:
-                del st.session_state.gen_rounds # 清空產生器畫布
+            if "gen_rounds" in st.session_state: del st.session_state.gen_rounds
             for key in ["p_name", "p_yarn", "p_hook", "p_notes"]:
-                if key in st.session_state:
-                    st.session_state[key] = ""
+                if key in st.session_state: st.session_state[key] = ""
             st.rerun()
         else:
             st.error("請填寫織圖名稱！")
