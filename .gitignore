@@ -1,0 +1,7 @@
+# 忽略虛擬環境
+ai-crochet/
+.conda/
+__pycache__/
+
+# 忽略作業系統產生的隱藏檔
+.DS_Store
